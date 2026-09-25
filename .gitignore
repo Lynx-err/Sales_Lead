@@ -1,10 +1,38 @@
-# Environment variables
+# Environment & Secrets
 .env
+.env.*
+!.env.example
+credentials*.json
+token*.json
+*.pem
+*.key
+*.p12
+*.crt
+*.cer
+API_KEYS.txt
+secrets.txt
 
-# Python cache
+# Python & Cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
 
-# Generated files
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Logs & Temporary Files
+*.log
+ppt_extracted_content.txt
+*.sqlite3
+*.db
+
+# Git and local generated artifacts
 leads_scored.csv
 leads_scored.json
+*.json
+!README.md
+!requirements.txt
+!package.json
