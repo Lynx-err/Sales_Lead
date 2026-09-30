@@ -113,10 +113,16 @@ streamlit run app.py
 The app includes:
 
 - dashboard metrics
-- single-lead analysis
-- batch lead processing
+- manual lead qualification
+- batch processing from the bundled or an uploaded CSV
 - email review hub
-- settings and about pages
+- processing, safe-delivery, and theme controls
+
+### Add Leads in the App
+
+- For one lead, open **Qualify a lead**, leave **Enter a new lead** selected, fill in the prospect details, and run qualification. Scored results are saved to SQLite and `leads_scored.json`.
+- For a list, open **Batch processing** and upload a CSV. Without an upload, the app uses the bundled `leads.csv`. Uploading a CSV replaces the bundled list for that app session and does not modify the sample file.
+- CSVs must include `Name` and `Notes` columns. Headers are case-insensitive; common aliases such as `Lead Name`, `Company Name`, `Email Address`, `Message`, and `Inquiry` are recognized. Company, job title, email, phone, industry, and size are optional.
 
 ## Batch Processing
 
@@ -157,6 +163,31 @@ Sales_Lead/
 - Empty or malformed CSV: the loader reports a clean error and avoids crashing the whole run.
 - Gmail unavailable: demo mode remains enabled and the email can still be copied or simulated.
 
+## New AI Features
+
+The project now includes a structured lead-intelligence layer before BANT scoring:
+
+- Spam / Non-sales detection: classifies each inbound email as `SPAM`, `NON_SALES`, or `GENUINE_LEAD` before expensive qualification runs.
+- Intent detection: identifies purchase, pricing, demo, information, follow-up, and general inquiry states with confidence and evidence.
+- Sentiment analysis: evaluates positive, neutral, or negative tone without using sentiment as a qualification gate.
+- Next best action: generates a recommended sales action from the actual qualification state, BANT score, and lead signals.
+- Email hallucination checking: validates generated drafts against the lead record and blocks unsupported invented claims.
+- Lead history & BANT evolution: stores interactions and historical BANT scores so the system can track changes over time.
+
+## Streamlit UI Enhancements
+
+The dashboard now surfaces:
+
+- email classification status
+- customer intent
+- sentiment
+- next best action
+- lead history summary and BANT trend info
+
+## Security
+
+Secrets are never committed. The project includes explicit ignore rules for `.env`, credentials, tokens, and private key files.
+
 ## Future Scope
 
 - Add CSV upload from the UI
@@ -164,8 +195,3 @@ Sales_Lead/
 - Add more robust recruiter/CRM integrations
 - Add multi-dataset validation and threshold tuning
 - Expand the dashboard with lead history and export tools
-
-## Security
-
-Secrets are never committed. The project includes explicit ignore rules for `.env`, credentials, tokens, and private key files.
-

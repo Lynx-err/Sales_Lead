@@ -1,7 +1,6 @@
 import os
 import csv
 import json
-from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -10,94 +9,83 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from models import BANTScore, EmailResponse, LeadProcessingResult
 from crew import (
-    score_lead,
-    generate_lead_email,
     process_lead_pipeline,
     is_quota_exhausted,
     reset_quota_status,
 )
-from email_service import default_email_service, EmailDeliveryService
+from email_service import default_email_service
 
 # Page Configuration
 st.set_page_config(
-    page_title="LeadSense AI — BANT Sales Lead Qualification",
-    page_icon="⚡",
+    page_title="LeadSense | Lead Qualification",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom Styling
-st.markdown("""
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+if st.session_state.dark_mode:
+    theme = {
+        "scheme": "dark", "background": "#18211f", "surface": "#222e2b",
+        "surface_alt": "#2c3936", "text": "#edf4f1", "muted": "#a2b3ad",
+        "border": "#3a4a45", "accent": "#62c4ae", "accent_hover": "#83d4c2",
+        "success": "#58c895", "warning": "#e6ad55", "danger": "#ed7770",
+        "grid": "#40504b",
+    }
+else:
+    theme = {
+        "scheme": "light", "background": "#f4f7f6", "surface": "#ffffff",
+        "surface_alt": "#eaf1ef", "text": "#24312e", "muted": "#63736e",
+        "border": "#d4dfdb", "accent": "#147b68", "accent_hover": "#0d6656",
+        "success": "#16835d", "warning": "#a86212", "danger": "#bd4942",
+        "grid": "#dce5e2",
+    }
+
+st.markdown(f"""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-    }
-    
-    .stApp {
-        background: radial-gradient(circle at top right, #1e1b4b 0%, #0f172a 45%, #020617 100%);
-        color: #f8fafc;
-    }
-    
-    .stMetric {
-        background: rgba(30, 41, 59, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-    }
-    
-    .leadsense-header {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
-        border: 1px solid rgba(168, 85, 247, 0.3);
-        border-radius: 16px;
-        padding: 24px 32px;
-        margin-bottom: 24px;
-        backdrop-filter: blur(10px);
-    }
-    
-    .badge-qualified {
-        background: linear-gradient(135deg, #059669 0%, #10b981 100%);
-        color: white;
-        padding: 6px 16px;
-        border-radius: 9999px;
-        font-weight: 700;
-        font-size: 0.95rem;
-        display: inline-block;
-        letter-spacing: 0.05em;
-        box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
-    }
-    
-    .badge-unqualified {
-        background: linear-gradient(135deg, #e11d48 0%, #f43f5e 100%);
-        color: white;
-        padding: 6px 16px;
-        border-radius: 9999px;
-        font-weight: 700;
-        font-size: 0.95rem;
-        display: inline-block;
-        letter-spacing: 0.05em;
-        box-shadow: 0 0 15px rgba(244, 63, 94, 0.4);
-    }
-    
-    .bant-card {
-        background: rgba(15, 23, 42, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin-bottom: 12px;
-    }
-    
-    .email-container {
-        background: rgba(15, 23, 42, 0.9);
-        border: 1px solid rgba(99, 102, 241, 0.3);
-        border-radius: 12px;
-        padding: 20px;
-        font-family: 'Inter', sans-serif;
-    }
+    :root, .stApp {{
+        color-scheme: {theme['scheme']};
+        --background-color: {theme['background']};
+        --secondary-background-color: {theme['surface']};
+        --text-color: {theme['text']};
+        --primary-color: {theme['accent']};
+        --app-bg: {theme['background']};
+        --surface: {theme['surface']};
+        --surface-alt: {theme['surface_alt']};
+        --text: {theme['text']};
+        --muted: {theme['muted']};
+        --border: {theme['border']};
+        --accent: {theme['accent']};
+        --accent-hover: {theme['accent_hover']};
+        --success: {theme['success']};
+        --warning: {theme['warning']};
+        --danger: {theme['danger']};
+        --grid: {theme['grid']};
+    }}
+    html, body, [class*="css"] {{ font-family: 'Segoe UI', 'Aptos', sans-serif; }}
+    .stApp, [data-testid="stAppViewContainer"] {{ background: var(--app-bg) !important; color: var(--text) !important; }}
+    [data-testid="stHeader"] {{ background: var(--app-bg) !important; }}
+    [data-testid="stSidebar"] {{ background: var(--surface) !important; border-right: 1px solid var(--border); color: var(--text) !important; }}
+    [data-testid="stMetric"] {{ background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 14px; box-shadow: none; }}
+    [data-testid="stMarkdownContainer"] :is(h1, h2, h3, h4, h5, h6, p, li), [data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] *, [data-testid="stRadio"] label, [data-testid="stRadio"] label * {{ color: var(--text-color) !important; }}
+    [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * {{ color: var(--muted) !important; }}
+    [data-baseweb="input"] > div, [data-baseweb="textarea"] > div, [data-baseweb="select"] > div {{ background: var(--surface) !important; border-color: var(--border) !important; }}
+    [data-baseweb="input"] *, [data-baseweb="textarea"] *, [data-baseweb="select"] * {{ color: var(--text-color) !important; }}
+    input, textarea {{ color: var(--text-color) !important; }}
+    [data-testid="stRadioOption"][data-selected="true"] > div > div:first-child {{ background: var(--accent) !important; border-color: var(--accent) !important; }}
+    [data-testid="stSlider"] div[style*="left:"] {{ background: var(--accent) !important; }}
+    [data-testid="stSliderThumbValue"] {{ border-color: var(--accent) !important; }}
+    .stButton > button, .stFormSubmitButton > button {{ border-radius: 4px; }}
+    .stButton > button[kind="primary"], .stFormSubmitButton > button {{ background: var(--accent); border-color: var(--accent); color: #fff; }}
+    .stButton > button[kind="primary"]:hover, .stFormSubmitButton > button:hover {{ background: var(--accent-hover); border-color: var(--accent-hover); }}
+    [role="tab"], [role="tab"] * {{ color: var(--muted) !important; }}
+    [role="tab"][aria-selected="true"], [role="tab"][aria-selected="true"] * {{ color: var(--accent) !important; }}
+    [role="tab"] [data-testid="stMarkdownContainer"] p {{ color: var(--muted) !important; }}
+    [role="tab"][aria-selected="true"] [data-testid="stMarkdownContainer"] p {{ color: var(--accent) !important; }}
+    .stTabs [data-baseweb="tab-highlight"] {{ background: var(--accent) !important; }}
+    hr {{ border-color: var(--border) !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,11 +115,12 @@ if "email_service" not in st.session_state:
 
 # Sidebar Controls & Branding
 with st.sidebar:
-    st.markdown("## ⚡ **LeadSense AI**")
-    st.caption("Intelligent BANT Sales Lead Qualification")
+    st.markdown("## LeadSense")
+    st.caption("Lead qualification workspace")
+    st.toggle("Dark mode", key="dark_mode")
     st.divider()
 
-    st.markdown("#### ⚙️ **Engine & Mode**")
+    st.markdown("#### Processing")
     engine_choice = st.radio(
         "Qualification Engine:",
         ["⚡ Fast Demo Engine (Instant)", "🤖 Real Gemini LLM (CrewAI)"],
@@ -150,7 +139,7 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown("#### 🛡️ **Email Delivery Protection**")
+    st.markdown("#### Email delivery")
     demo_mode_toggle = st.toggle(
         "Safe Demo Mode",
         value=st.session_state.email_service.is_demo_mode(),
@@ -177,45 +166,16 @@ with st.sidebar:
         st.caption("🔴 **Gemini AI:** Key Not Set (Using Rule Fallback)")
 
     st.divider()
-    st.markdown(
-        """
-        **Academic Project Details**  
-        *Major Project Progress Seminar-II*  
-        *Session: 2026-2027*  
-        *GHRCE, Nagpur*
-        """
-    )
-
-
-# Top Banner
-st.markdown("""
-<div class="leadsense-header">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <h1 style="margin: 0; font-size: 2.2rem; font-weight: 800; background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                LeadSense AI
-            </h1>
-            <p style="margin: 6px 0 0 0; color: #94a3b8; font-size: 1.05rem;">
-                Autonomous BANT Qualification & Multi-Agent Sales Communication Pipeline
-            </p>
-        </div>
-        <div style="text-align: right;">
-            <span style="background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4); padding: 6px 14px; border-radius: 8px; font-size: 0.85rem; color: #cbd5e1;">
-                Powered by Gemini LLM & CrewAI
-            </span>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.title("Lead qualification")
+st.caption("Review inbound leads, qualification signals, and recommended next steps.")
 
 
 # Main Navigation Tabs
-tab_overview, tab_single, tab_batch, tab_emails, tab_about = st.tabs([
-    "📊 Executive Dashboard",
-    "🎯 Single Lead Qualification",
-    "📁 Batch Processing & Dataset",
-    "✉️ Email Communication Hub",
-    "ℹ️ Architecture & Seminar Specs",
+tab_overview, tab_single, tab_batch, tab_emails = st.tabs([
+    "Overview",
+    "Qualify a lead",
+    "Batch processing",
+    "Email outbox",
 ])
 
 
@@ -226,7 +186,7 @@ with tab_overview:
     scored_leads = st.session_state.scored_leads
 
     if not scored_leads:
-        st.info("No leads scored yet. Use Tab 2 to qualify a single prospect or Tab 3 to run the batch dataset.", icon="💡")
+        st.info("No leads scored yet. Qualify a lead or start a batch run to populate the dashboard.")
     else:
         total_leads = len(scored_leads)
         qualified_leads = sum(1 for l in scored_leads if l.get("bant_score", {}).get("qualification") == "Qualified")
@@ -251,7 +211,7 @@ with tab_overview:
         col_chart1, col_chart2 = st.columns([1, 1])
 
         with col_chart1:
-            st.markdown("##### 🎯 **BANT Framework Dimension Averages**")
+            st.markdown("##### BANT dimension averages")
             b_avg = sum(l.get("bant_score", {}).get("budget_score", 0) for l in scored_leads) / total_leads
             a_avg = sum(l.get("bant_score", {}).get("authority_score", 0) for l in scored_leads) / total_leads
             n_avg = sum(l.get("bant_score", {}).get("need_score", 0) for l in scored_leads) / total_leads
@@ -262,24 +222,25 @@ with tab_overview:
                 r=[b_avg, a_avg, n_avg, t_avg, b_avg],
                 theta=['Budget (25)', 'Authority (25)', 'Need (25)', 'Timeline (25)', 'Budget (25)'],
                 fill='toself',
-                fillcolor='rgba(99, 102, 241, 0.35)',
-                line=dict(color='#818cf8', width=2),
+                fillcolor=theme["accent"],
+                opacity=0.22,
+                line=dict(color=theme["accent"], width=2),
                 name='Average Score'
             ))
             fig_radar.update_layout(
                 polar=dict(
-                    radialaxis=dict(visible=True, range=[0, 25], gridcolor='rgba(255, 255, 255, 0.1)'),
-                    angularaxis=dict(gridcolor='rgba(255, 255, 255, 0.1)'),
-                    bgcolor='rgba(15, 23, 42, 0.4)'
+                    radialaxis=dict(visible=True, range=[0, 25], gridcolor=theme["grid"], color=theme["muted"]),
+                    angularaxis=dict(gridcolor=theme["grid"], color=theme["muted"]),
+                    bgcolor=theme["surface"]
                 ),
                 paper_bgcolor='rgba(0,0,0,0)',
                 margin=dict(l=40, r=40, t=20, b=20),
                 height=320,
             )
-            st.plotly_chart(fig_radar, use_container_width=True)
+            st.plotly_chart(fig_radar, width="stretch")
 
         with col_chart2:
-            st.markdown("##### 📈 **Lead Score Distribution & Cutoff**")
+            st.markdown("##### Lead score distribution")
             scores = [l.get("bant_score", {}).get("bant_score", 0) for l in scored_leads]
             names = [l.get("lead_data", {}).get("Name", "Lead") for l in scored_leads]
             qual_labels = [l.get("bant_score", {}).get("qualification", "Unqualified") for l in scored_leads]
@@ -290,56 +251,50 @@ with tab_overview:
                 x="Lead",
                 y="BANT_Score",
                 color="Status",
-                color_discrete_map={"Qualified": "#10b981", "Unqualified": "#f43f5e"},
+                color_discrete_map={"Qualified": theme["success"], "Unqualified": theme["danger"]},
                 text="BANT_Score",
             )
             fig_bar.add_hline(
                 y=qualification_threshold,
                 line_dash="dot",
-                line_color="#fbbf24",
+                line_color=theme["warning"],
                 annotation_text=f"Threshold ({qualification_threshold})",
                 annotation_position="bottom right"
             )
             fig_bar.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(15, 23, 42, 0.4)',
-                font=dict(color='#e2e8f0'),
+                plot_bgcolor=theme["surface"],
+                font=dict(color=theme["text"]),
                 margin=dict(l=20, r=20, t=20, b=20),
                 height=320,
-                xaxis=dict(gridcolor='rgba(255,255,255,0.05)'),
-                yaxis=dict(gridcolor='rgba(255,255,255,0.05)', range=[0, 105]),
+                xaxis=dict(gridcolor=theme["grid"]),
+                yaxis=dict(gridcolor=theme["grid"], range=[0, 105]),
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
 
 
 # ==========================================
 # TAB 2: SINGLE LEAD QUALIFICATION
 # ==========================================
 with tab_single:
-    st.markdown("#### 🎯 **Interactive Real-Time Lead Qualification**")
-    st.caption("Agent 1 extracts BANT signals and assigns scores; Agent 2 drafts customized sales outreach or nurture emails.")
+    st.markdown("#### Qualify a lead")
+    st.caption("Enter prospect details to review BANT scores and a suggested follow-up.")
 
     # Preset selection
     sample_leads = st.session_state.raw_leads
-    preset_options = ["Custom Input"] + [f"{l.get('Name')} — {l.get('Company')} ({l.get('Job Title')})" for l in sample_leads]
-    selected_preset = st.selectbox("⚡ Quick-load from Beauty Industry Dataset:", preset_options)
+    preset_options = ["Enter a new lead"] + [f"{l.get('Name')} — {l.get('Company')} ({l.get('Job Title')})" for l in sample_leads]
+    selected_preset = st.selectbox("Load an existing lead", preset_options)
 
-    default_name = "Maria Olson"
-    default_title = "Head of Merchandising"
-    default_company = "Gray, Olson and Anderson Beauty"
-    default_email = "amandacortez@duncan-foster.org"
-    default_phone = "7700803464"
-    default_industry = "Cosmetics Retail"
-    default_size = "Small (1-50)"
-    default_notes = (
-        "Hello, My name is Maria Olson from Gray, Olson and Anderson Beauty and I work as the Head of Merchandising. "
-        "We are refreshing our summer makeup shelf with a new color assortment and need catalog and wholesale terms. "
-        "Our indicative budget for this initiative is $250k. We're targeting to move forward within 2 months and timing is important for us. "
-        "Could you please provide scope, sample availability, MOQ, pricing tiers, lead times, and compliance documents? "
-        "I will be the final sign-off on supplier selection. Regards, Maria Olson"
-    )
+    default_name = ""
+    default_title = ""
+    default_company = ""
+    default_email = ""
+    default_phone = ""
+    default_industry = ""
+    default_size = "Not specified"
+    default_notes = ""
 
-    if selected_preset != "Custom Input":
+    if selected_preset != "Enter a new lead":
         idx = preset_options.index(selected_preset) - 1
         lead_preset = sample_leads[idx]
         default_name = lead_preset.get("Name", "")
@@ -348,7 +303,7 @@ with tab_single:
         default_email = lead_preset.get("Email", "")
         default_phone = lead_preset.get("Phone", "")
         default_industry = lead_preset.get("Industry", "")
-        default_size = lead_preset.get("Size", "")
+        default_size = lead_preset.get("Size", "Not specified") or "Not specified"
         default_notes = lead_preset.get("Notes", "")
 
     with st.form("single_lead_form"):
@@ -361,12 +316,23 @@ with tab_single:
             industry_input = st.text_input("Industry", value=default_industry)
         with col_f3:
             email_input = st.text_input("Email Address", value=default_email)
-            size_input = st.selectbox("Company Size", ["Small (1-50)", "Medium (51-200)", "Large (201-1000)", "Enterprise (1000+)"], index=0)
+            size_options = ["Not specified", "Small (1-50)", "Medium (51-200)", "Large (201-1000)", "Enterprise (1000+)"]
+            if default_size not in size_options:
+                size_options.append(default_size)
+            size_input = st.selectbox("Company Size", size_options, index=size_options.index(default_size))
 
-        notes_input = st.text_area("Inbound Sales Inquiry / Notes (Free-text)", value=default_notes, height=130)
-        submit_btn = st.form_submit_button("⚡ Run Multi-Agent LeadSense AI Pipeline", use_container_width=True)
+        notes_input = st.text_area(
+            "Lead notes",
+            value=default_notes,
+            placeholder="Include the prospect's needs, budget, decision role, and expected timeline.",
+            height=130,
+        )
+        submit_btn = st.form_submit_button("Run qualification", type="primary", width="stretch")
 
-    if submit_btn:
+    if submit_btn and not name_input.strip():
+        st.error("Enter a lead name before running qualification.")
+
+    if submit_btn and name_input.strip():
         lead_payload = {
             "Name": name_input,
             "Job Title": title_input,
@@ -394,127 +360,164 @@ with tab_single:
         else:
             st.session_state.scored_leads.append(result)
 
+        with open("leads_scored.json", "w", encoding="utf-8") as f:
+            json.dump(st.session_state.scored_leads, f, indent=2)
+
         # Display Results
         score_data = result["bant_score"]
-        email_data = result["email_response"]
-        is_qual = score_data["qualification"] == "Qualified"
-
+        email_data = result.get("email_response")
+        classification = result.get("classification") or {"classification": "GENUINE_LEAD", "confidence": 0.0, "reason": ""}
+        intent = result.get("intent") or {"intent": "UNKNOWN", "confidence": 0.0, "evidence": ""}
+        sentiment = result.get("sentiment") or {"sentiment": "NEUTRAL", "confidence": 0.0, "reason": ""}
+        nxt = result.get("next_best_action") or {"action": "MANUAL_REVIEW", "reason": "No action generated.", "priority": "MEDIUM"}
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📋 **Lead Qualification Assessment**")
+        st.markdown("### Qualification results")
 
         res_col1, res_col2 = st.columns([1, 1.2])
 
         with res_col1:
-            # Score Overview Card
-            st.markdown(f"""
-            <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 24px; text-align: center;">
-                <div style="margin-bottom: 12px;">
-                    <span class="{'badge-qualified' if is_qual else 'badge-unqualified'}">
-                        {score_data['qualification'].upper()}
-                    </span>
-                </div>
-                <h1 style="font-size: 3.5rem; margin: 0; color: {'#10b981' if is_qual else '#f43f5e'};">
-                    {score_data['bant_score']}<span style="font-size: 1.5rem; color: #94a3b8;">/100</span>
-                </h1>
-                <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px;">
-                    Qualification Cutoff: {qualification_threshold}/100
-                </p>
-                <div style="text-align: left; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                    <p style="margin: 0; font-size: 0.9rem; color: #e2e8f0;"><strong>Rationale:</strong> {score_data['rationale']}</p>
-                    <p style="margin: 8px 0 0 0; font-size: 0.9rem; color: #38bdf8;"><strong>Recommended Action:</strong> {score_data['recommended_action']}</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric("BANT score", f"{score_data['bant_score']} / 100")
+            st.caption(f"Qualification: {score_data['qualification']}")
+            st.caption(f"Qualification threshold: {qualification_threshold} / 100")
+            st.progress(score_data["bant_score"] / 100)
+            st.write("**Rationale**")
+            st.write(score_data["rationale"])
+            st.write("**Recommended action**")
+            st.write(score_data["recommended_action"])
+
+            st.markdown("#### Lead signals")
+            signal_cols = st.columns(3)
+            signal_cols[0].metric("Classification", classification["classification"], f"{classification['confidence']:.0%} confidence")
+            signal_cols[1].metric("Intent", intent["intent"], f"{intent['confidence']:.0%} confidence")
+            signal_cols[2].metric("Sentiment", sentiment["sentiment"])
+            st.info(f"Next action: {nxt['action']} · {nxt['priority']} priority\n{nxt['reason']}")
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Granular Category Scores
-            st.markdown("##### 📊 **Granular Category Scores**")
+            st.markdown("##### BANT breakdown")
             b_sc, a_sc = score_data.get("budget_score", 0), score_data.get("authority_score", 0)
             n_sc, t_sc = score_data.get("need_score", 0), score_data.get("timeline_score", 0)
 
             c_b, c_a = st.columns(2)
             with c_b:
-                st.markdown(f"**💰 Budget:** `{b_sc}/25`")
+                st.markdown(f"**Budget:** `{b_sc}/25`")
                 st.progress(b_sc / 25)
                 st.caption(score_data.get("budget_signal", ""))
             with c_a:
-                st.markdown(f"**👑 Authority:** `{a_sc}/25`")
+                st.markdown(f"**Authority:** `{a_sc}/25`")
                 st.progress(a_sc / 25)
                 st.caption(score_data.get("authority_signal", ""))
 
             c_n, c_t = st.columns(2)
             with c_n:
-                st.markdown(f"**🎯 Need:** `{n_sc}/25`")
+                st.markdown(f"**Need:** `{n_sc}/25`")
                 st.progress(n_sc / 25)
                 st.caption(score_data.get("need_signal", ""))
             with c_t:
-                st.markdown(f"**⏳ Timeline:** `{t_sc}/25`")
+                st.markdown(f"**Timeline:** `{t_sc}/25`")
                 st.progress(t_sc / 25)
                 st.caption(score_data.get("timeline_signal", ""))
 
         with res_col2:
-            st.markdown("##### ✉️ **Agent 2: Generated Outreach Email**")
-            st.markdown(f"""
-            <div class="email-container">
-                <div style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 12px; margin-bottom: 12px;">
-                    <div style="font-size: 0.85rem; color: #94a3b8;">RECIPIENT: <span style="color: #f8fafc;">{email_data['recipient_email']}</span></div>
-                    <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 4px;">TYPE: <span style="color: {'#34d399' if is_qual else '#fb7185'}; font-weight: 600;">{email_data['email_type'].replace('_', ' ').title()}</span></div>
-                    <div style="font-size: 1rem; color: #f8fafc; font-weight: 700; margin-top: 8px;">SUBJECT: {email_data['subject']}</div>
-                </div>
-                <div style="white-space: pre-wrap; line-height: 1.6; color: #e2e8f0; font-size: 0.95rem;">{email_data['body']}</div>
-                <div style="margin-top: 16px; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, 0.1); font-size: 0.85rem; color: #38bdf8;">
-                    <strong>Proposed Next Step (CTA):</strong> {email_data['call_to_action']}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            if email_data:
+                st.markdown("##### Draft preview")
+                st.caption(f"To: {email_data['recipient_email']} · {email_data['email_type'].replace('_', ' ').title()}")
+                st.write("**Subject**")
+                st.text(email_data["subject"])
+                st.text_area("Email body", value=email_data["body"], height=220, disabled=True, key="single_email_preview")
+                st.caption(f"Suggested next step: {email_data['call_to_action']}")
 
-            st.markdown("<br>", unsafe_allow_html=True)
-            col_send1, col_send2 = st.columns([1, 1])
-            with col_send1:
-                if st.button("🚀 Send Email via Gmail", key="btn_send_single", use_container_width=True):
-                    with st.spinner("Dispatching through Gmail API / Safe Simulator..."):
-                        delivery_receipt = st.session_state.email_service.send_email(
-                            recipient=email_data["recipient_email"],
-                            subject=email_data["subject"],
-                            body=email_data["body"]
-                        )
-                        st.session_state.scored_leads[-1]["email_delivery_status"] = delivery_receipt["status"]
-                        st.session_state.scored_leads[-1]["email_sent_at"] = delivery_receipt["timestamp"]
-                        st.session_state.scored_leads[-1]["delivery_notes"] = delivery_receipt.get("notes") or delivery_receipt.get("error")
+                st.markdown("<br>", unsafe_allow_html=True)
+                col_send1, col_send2 = st.columns([1, 1])
+                with col_send1:
+                    if st.button("Send email", key="btn_send_single", type="primary", width="stretch"):
+                        with st.spinner("Sending email..."):
+                            delivery_receipt = st.session_state.email_service.send_email(
+                                recipient=email_data["recipient_email"],
+                                subject=email_data["subject"],
+                                body=email_data["body"]
+                            )
+                            st.session_state.scored_leads[-1]["email_delivery_status"] = delivery_receipt["status"]
+                            st.session_state.scored_leads[-1]["email_sent_at"] = delivery_receipt["timestamp"]
+                            st.session_state.scored_leads[-1]["delivery_notes"] = delivery_receipt.get("notes") or delivery_receipt.get("error")
 
-                    if delivery_receipt["status"] in ("sent", "simulated"):
-                        st.success(f"Delivered! Status: {delivery_receipt['status'].upper()} (ID: {delivery_receipt.get('message_id', 'N/A')})")
-                    else:
-                        st.error(f"Delivery failed: {delivery_receipt.get('error')}")
+                        if delivery_receipt["status"] in ("sent", "simulated"):
+                            st.success(f"Email {delivery_receipt['status']}.")
+                        else:
+                            st.error(f"Delivery failed: {delivery_receipt.get('error')}")
+            else:
+                st.warning("BANT analysis skipped because this message was classified as spam or non-sales.")
 
 
 # ==========================================
 # TAB 3: BATCH PROCESSING & DATASET
 # ==========================================
 with tab_batch:
-    st.markdown("#### 📁 **Batch Qualification & Dataset Processing**")
-    st.caption("Load beauty industry leads dataset (`leads.csv`) or upload custom CSV for autonomous scoring.")
+    st.markdown("#### Batch processing")
+    uploaded_csv = st.file_uploader("Upload leads CSV", type=["csv"], key="batch_leads_csv")
+    batch_leads = st.session_state.raw_leads
+    batch_source = "leads.csv"
+
+    if uploaded_csv is not None:
+        try:
+            uploaded_df = pd.read_csv(uploaded_csv, keep_default_na=False, encoding="utf-8-sig")
+            column_aliases = {
+                "name": "Name", "lead name": "Name",
+                "company": "Company", "company name": "Company", "organization": "Company",
+                "email": "Email", "email address": "Email",
+                "job title": "Job Title", "title": "Job Title", "designation": "Job Title",
+                "phone": "Phone", "industry": "Industry", "size": "Size",
+                "notes": "Notes", "inquiry": "Notes", "message": "Notes", "sales inquiry": "Notes",
+            }
+            uploaded_df = uploaded_df.rename(
+                columns={column: column_aliases.get(str(column).strip().lower(), str(column).strip()) for column in uploaded_df.columns}
+            )
+            missing_columns = [column for column in ("Name", "Notes") if column not in uploaded_df.columns]
+            if uploaded_df.empty:
+                st.error("The uploaded CSV has no lead rows.")
+                batch_leads = []
+            elif missing_columns:
+                st.error(f"CSV must include these columns: {', '.join(missing_columns)}.")
+                batch_leads = []
+            else:
+                for column in ("Company", "Job Title", "Email", "Phone", "Industry", "Size"):
+                    if column not in uploaded_df.columns:
+                        uploaded_df[column] = ""
+                batch_leads = uploaded_df.to_dict(orient="records")
+                batch_source = uploaded_csv.name
+        except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError, ValueError) as error:
+            st.error(f"Could not read the CSV: {error}")
+            batch_leads = []
 
     col_b1, col_b2 = st.columns([1, 1])
     with col_b1:
-        st.markdown("##### 📂 **Current Dataset**")
-        st.write(f"Loaded **{len(st.session_state.raw_leads)} leads** from Kaggle Beauty BANT Dataset (`leads.csv`).")
-        if st.session_state.raw_leads:
-            df_raw = pd.DataFrame(st.session_state.raw_leads)
-            st.dataframe(df_raw[["Name", "Company", "Job Title", "Industry", "Size"]], use_container_width=True, height=200)
+        st.markdown("##### Leads to process")
+        st.caption(f"{len(batch_leads)} leads from {batch_source}.")
+        if batch_leads:
+            df_raw = pd.DataFrame(batch_leads)
+            preview_columns = [column for column in ("Name", "Company", "Job Title", "Email", "Industry", "Size") if column in df_raw.columns]
+            st.dataframe(df_raw[preview_columns], width="stretch", height=200)
 
     with col_b2:
-        st.markdown("##### ⚡ **Batch Run Controls**")
-        batch_limit = st.slider("Leads to process in batch", min_value=1, max_value=max(1, len(st.session_state.raw_leads)), value=min(5, len(st.session_state.raw_leads)))
+        st.markdown("##### Run controls")
+        if len(batch_leads) > 1:
+            batch_limit = st.slider(
+                "Leads to process",
+                min_value=1,
+                max_value=len(batch_leads),
+                value=min(5, len(batch_leads)),
+            )
+        else:
+            batch_limit = len(batch_leads)
+            st.caption(f"{batch_limit} lead{'s' if batch_limit != 1 else ''} will be processed.")
         auto_send_emails = st.checkbox("Auto-send / simulate email delivery during batch processing", value=False)
-        run_batch_btn = st.button("🚀 Start Batch Qualification", use_container_width=True)
+        run_batch_btn = st.button("Run batch", type="primary", width="stretch", disabled=not batch_leads)
 
     if run_batch_btn:
         progress_bar = st.progress(0.0)
         status_text = st.empty()
         batch_results = []
-        leads_to_run = st.session_state.raw_leads[:batch_limit]
+        leads_to_run = batch_leads[:batch_limit]
 
         for idx, lead in enumerate(leads_to_run):
             status_text.text(f"Processing ({idx+1}/{len(leads_to_run)}): {lead.get('Name')} at {lead.get('Company')}...")
@@ -529,7 +532,7 @@ with tab_batch:
             progress_bar.progress((idx + 1) / len(leads_to_run))
 
         st.session_state.scored_leads = batch_results
-        status_text.success(f"Batch completed! Successfully scored {len(batch_results)} leads.")
+        status_text.success(f"Batch complete. Processed {len(batch_results)} leads.")
 
         # Save to file
         with open("leads_scored.json", "w", encoding="utf-8") as f:
@@ -539,7 +542,7 @@ with tab_batch:
 
     # Scored Leads Table
     if st.session_state.scored_leads:
-        st.markdown("##### 📋 **Scored Leads Results Table**")
+        st.markdown("##### Scored leads")
         flat_records = []
         for r in st.session_state.scored_leads:
             lead = r.get("lead_data", {})
@@ -573,27 +576,27 @@ with tab_batch:
             filtered_df = filtered_df[filtered_df["Status"] == status_filter]
         filtered_df = filtered_df[filtered_df["BANT Score"] >= min_score_filter]
 
-        st.dataframe(filtered_df, use_container_width=True)
+        st.dataframe(filtered_df, width="stretch")
 
         # Export Buttons
         col_exp1, col_exp2 = st.columns(2)
         with col_exp1:
             csv_data = filtered_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                "📥 Export Filtered Leads to CSV",
+                "Export filtered CSV",
                 data=csv_data,
                 file_name="leads_scored_export.csv",
                 mime="text/csv",
-                use_container_width=True
+                width="stretch"
             )
         with col_exp2:
             json_str = json.dumps(st.session_state.scored_leads, indent=2)
             st.download_button(
-                "📥 Export Full Results to JSON",
+                "Export full results to JSON",
                 data=json_str,
                 file_name="leads_scored_full.json",
                 mime="application/json",
-                use_container_width=True
+                width="stretch"
             )
 
 
@@ -601,11 +604,11 @@ with tab_batch:
 # TAB 4: EMAIL COMMUNICATION HUB
 # ==========================================
 with tab_emails:
-    st.markdown("#### ✉️ **Email Communication Hub & Outbox**")
-    st.caption("Review, edit, and dispatch generated outreach and nurturing emails with safe delivery safeguards.")
+    st.markdown("#### Email outbox")
+    st.caption("Review generated drafts and send them when ready.")
 
     if not st.session_state.scored_leads:
-        st.info("No leads available. Please score leads in Tab 2 or Tab 3 first.", icon="💡")
+        st.info("No leads available. Qualify a lead or run a batch first.")
     else:
         lead_names = [f"{l.get('lead_data', {}).get('Name')} ({l.get('lead_data', {}).get('Company')})" for l in st.session_state.scored_leads]
         selected_lead_idx = st.selectbox("Select Lead Outbox Entry:", range(len(lead_names)), format_func=lambda x: lead_names[x])
@@ -619,14 +622,14 @@ with tab_emails:
             col_em1, col_em2 = st.columns([1.5, 1])
 
             with col_em1:
-                st.markdown("##### 📝 **Editable Email Draft**")
+                st.markdown("##### Email draft")
                 edit_recipient = st.text_input("Recipient Email", value=email_info.get("recipient_email", ""), key="em_rec")
                 edit_subject = st.text_input("Subject Line", value=email_info.get("subject", ""), key="em_subj")
                 edit_body = st.text_area("Email Content", value=email_info.get("body", ""), height=260, key="em_body")
 
                 col_btn_save, col_btn_send = st.columns(2)
                 with col_btn_save:
-                    if st.button("💾 Save Edits to Draft", use_container_width=True):
+                    if st.button("Save draft", width="stretch"):
                         st.session_state.scored_leads[selected_lead_idx]["email_response"]["subject"] = edit_subject
                         st.session_state.scored_leads[selected_lead_idx]["email_response"]["body"] = edit_body
                         st.session_state.scored_leads[selected_lead_idx]["email_response"]["recipient_email"] = edit_recipient
@@ -634,7 +637,7 @@ with tab_emails:
 
                 with col_btn_send:
                     confirm_send = st.checkbox("Confirm dispatch", value=True, key="chk_confirm")
-                    if st.button("📨 Dispatch Email", use_container_width=True):
+                    if st.button("Send email", type="primary", width="stretch"):
                         if not confirm_send:
                             st.warning("Please check the confirmation box before sending.")
                         else:
@@ -653,71 +656,19 @@ with tab_emails:
                                 st.error(f"Delivery Error: {receipt.get('error')}")
 
             with col_em2:
-                st.markdown("##### 📊 **Lead Summary & Status**")
+                st.markdown("##### Lead summary")
                 sc = target_lead_res.get("bant_score", {})
-                st.markdown(f"""
-                <div class="bant-card">
-                    <p style="margin: 0;"><strong>Prospect:</strong> {target_lead_res.get('lead_data', {}).get('Name')}</p>
-                    <p style="margin: 4px 0;"><strong>Company:</strong> {target_lead_res.get('lead_data', {}).get('Company')}</p>
-                    <p style="margin: 4px 0;"><strong>Score:</strong> <span style="color: #38bdf8; font-weight: bold;">{sc.get('bant_score')}/100</span> ({sc.get('qualification')})</p>
-                    <p style="margin: 4px 0;"><strong>Delivery Status:</strong> <code>{target_lead_res.get('email_delivery_status', 'draft')}</code></p>
-                    <p style="margin: 4px 0; font-size: 0.85rem; color: #94a3b8;"><strong>Timestamp:</strong> {target_lead_res.get('email_sent_at') or 'Not yet transmitted'}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.write(f"**Prospect:** {target_lead_res.get('lead_data', {}).get('Name', 'Unknown')}")
+                st.write(f"**Company:** {target_lead_res.get('lead_data', {}).get('Company', 'Unknown')}")
+                st.metric("BANT score", f"{sc.get('bant_score', 0)}/100")
+                st.caption(f"Qualification: {sc.get('qualification', 'Unqualified')}")
+                st.write(f"**Delivery:** {target_lead_res.get('email_delivery_status', 'draft')}")
+                st.caption(f"Sent: {target_lead_res.get('email_sent_at') or 'Not yet'}")
 
         st.divider()
-        st.markdown("##### 📜 **Delivery Audit Trail Log**")
+        st.markdown("##### Delivery log")
         audit_records = st.session_state.email_service.get_audit_log()
         if audit_records:
-            st.dataframe(pd.DataFrame(audit_records), use_container_width=True)
+            st.dataframe(pd.DataFrame(audit_records), width="stretch")
         else:
             st.caption("No emails transmitted or simulated in this session yet.")
-
-
-# ==========================================
-# TAB 5: ARCHITECTURE & SEMINAR SPECS
-# ==========================================
-with tab_about:
-    st.markdown("#### 🏛️ **System Architecture & Progress Seminar-II Specifications**")
-
-    col_sp1, col_sp2 = st.columns([1.2, 1])
-
-    with col_sp1:
-        st.markdown("""
-        ##### 📌 **Major Project Overview**
-        - **Project Title:** LeadSense AI — Intelligent BANT-Based Sales Lead Qualification System
-        - **Academic Year:** 2026 - 2027
-        - **Department:** Department of Artificial Intelligence
-        - **Institution:** GHRCE, Nagpur
-
-        ##### 👥 **Project Team**
-        1. **Amisha Gillarkar** (A-01)
-        2. **Dnyaneshwari Patharkar** (A-13)
-        3. **Samiksha Kapate** (A-17)
-        4. **Atharva Bajpai** (A-36)
-        - **Project Guide:** Prof. Saundarya Raut
-
-        ##### 🔄 **7-Step End-to-End Methodology (per Seminar PPT)**
-        1. **Step 1: Lead Acquisition** — Capture customer requirements via CSV, API, or interactive input.
-        2. **Step 2: Lead Pre-processing** — Extract name, company, budget, timeline, and job designation.
-        3. **Step 3: BANT Analysis** — Agent 1 evaluates: Budget + Authority + Need + Timeline (0-25 each).
-        4. **Step 4: Lead Classification** — Calculate Total BANT Score = B + A + N + T; apply gating rule.
-        5. **Step 5: Email Generation** — Agent 2 generates sales pitch for Qualified or nurture for Unqualified.
-        6. **Step 6: Email Sending** — GCP + Gmail API transmission with built-in safe demo simulation.
-        7. **Step 7: User Interface** — Interactive Streamlit dashboard with real-time analytics.
-        """)
-
-    with col_sp2:
-        st.markdown("""
-        ##### 🤖 **Multi-Agent Architecture**
-        - **Agent 1:** `BANT Lead Qualification Specialist`
-          * LLM: Google Gemini (`gemini-3.6-flash`)
-          * Objective: Structured extraction of BANT dimensions with gating rule enforcement.
-        - **Agent 2:** `Sales Outreach & Nurture Specialist`
-          * Objective: Hyper-personalized B2B emails with distinct pitches and CTAs.
-        - **Safety & Delivery Layer:**
-          * Dual Protocol: GCP Gmail API (OAuth2) + Gmail SMTP (App Password)
-          * Safe Demo Mode: Automated validation & synthetic delivery simulation.
-        """)
-
-        st.info("Dataset: Beauty Industry BANT Leads Dataset (Kaggle realistic enterprise leads).", icon="💄")

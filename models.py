@@ -6,8 +6,7 @@ class BANTScore(BaseModel):
     """Structured BANT scoring output for a single lead."""
 
     lead_name: str = Field(description="Full name of the lead")
-    
-    # Quantitative category scores (0 to 25 each, summing to 100 total)
+
     budget_score: int = Field(
         ge=0, le=25, default=0,
         description="Budget dimension score from 0-25 based on financial signals and capacity"
@@ -24,8 +23,7 @@ class BANTScore(BaseModel):
         ge=0, le=25, default=0,
         description="Timeline dimension score from 0-25 based on purchase horizon and urgency"
     )
-    
-    # Qualitative category signals
+
     budget_signal: str = Field(
         description="What the notes suggest about budget/spending capacity, "
         "or 'not mentioned' if there is no evidence either way"
@@ -41,8 +39,7 @@ class BANTScore(BaseModel):
         description="What the notes suggest about urgency/timeline, "
         "or 'not mentioned' if there is no evidence either way"
     )
-    
-    # Overall score and qualification
+
     bant_score: int = Field(
         ge=0, le=100, description="Overall BANT score from 0-100 (sum of B + A + N + T)"
     )
@@ -83,20 +80,76 @@ class EmailResponse(BaseModel):
     )
 
 
+class EmailValidationResult(BaseModel):
+    """Result of the fact-checker validating generated email content."""
+
+    status: Literal["PASS", "FAIL", "SKIPPED"] = Field(default="SKIPPED")
+    is_valid: bool = Field(default=True)
+    issues: List[str] = Field(default_factory=list)
+    evidence: str = Field(default="No unsupported claims detected.")
+    claim: Optional[str] = Field(default=None)
+    retry_count: int = Field(default=0)
+    max_retries: int = Field(default=2)
+
+
+class LeadClassification(BaseModel):
+    """Email classification before BANT evaluation."""
+
+    classification: Literal["SPAM", "NON_SALES", "GENUINE_LEAD"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class LeadIntent(BaseModel):
+    """Customer intent for genuine sales leads."""
+
+    intent: Literal[
+        "PRODUCT_INQUIRY",
+        "PRICING_INQUIRY",
+        "DEMO_REQUEST",
+        "PURCHASE_INTENT",
+        "INFORMATION_REQUEST",
+        "FOLLOW_UP",
+        "GENERAL_INQUIRY",
+        "UNKNOWN",
+    ]
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence: str
+
+
+class LeadSentiment(BaseModel):
+    """Customer sentiment signal only."""
+
+    sentiment: Literal["POSITIVE", "NEUTRAL", "NEGATIVE"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class NextBestAction(BaseModel):
+    """Recommended next action for sales team."""
+
+    action: str
+    reason: str
+    priority: Literal["HIGH", "MEDIUM", "LOW"]
+
+
 class LeadProcessingResult(BaseModel):
     """Full end-to-end processing result combining lead, score, and email response."""
 
     lead_data: Dict[str, Any] = Field(description="Original input lead record")
     bant_score: BANTScore = Field(description="BANT qualification assessment")
-    email_response: Optional[EmailResponse] = Field(
-        default=None, description="Generated email draft"
-    )
-    email_delivery_status: Literal["draft", "sent", "simulated", "failed", "pending"] = Field(
+    classification: Optional[LeadClassification] = Field(default=None, description="Spam / non-sale / lead classification")
+    intent: Optional[LeadIntent] = Field(default=None, description="Customer intent for genuine sales leads")
+    sentiment: Optional[LeadSentiment] = Field(default=None, description="Customer tone signal")
+    next_best_action: Optional[NextBestAction] = Field(default=None, description="Recommended action for the salesperson")
+    email_response: Optional[EmailResponse] = Field(default=None, description="Generated email draft")
+    email_validation: Optional[EmailValidationResult] = Field(default=None, description="Email hallucination validation result")
+    email_delivery_status: Literal["draft", "sent", "simulated", "failed", "pending", "skipped"] = Field(
         default="draft", description="Current status of email delivery"
     )
-    email_sent_at: Optional[str] = Field(
-        default=None, description="ISO timestamp when email was transmitted/simulated"
-    )
-    delivery_notes: Optional[str] = Field(
-        default=None, description="Notes or error details from email delivery service"
-    )
+    email_sent_at: Optional[str] = Field(default=None, description="ISO timestamp when email was transmitted/simulated")
+    delivery_notes: Optional[str] = Field(default=None, description="Notes or error details from email delivery service")
+    lead_history: List[Dict[str, Any]] = Field(default_factory=list, description="Historical lead interactions")
+    bant_history: List[Dict[str, Any]] = Field(default_factory=list, description="Historical BANT score evolution")
+
+    model_config = {"extra": "ignore"}
